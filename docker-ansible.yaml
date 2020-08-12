@@ -1,0 +1,118 @@
+- hosts: all
+  tasks:
+   - name: Add a yum repositry
+     yum_repository:
+      name: kube-docker
+      description: kubernetes repo
+      baseurl: https://download.docker.com/linux/centos/7/x86_64/stable/
+      gpgcheck: no
+      repo_gpgcheck: 0
+      enabled: 1
+
+
+
+   - name: shows weather docker repo is there or not
+     command: yum repolist
+     register: repolist
+
+
+
+   - name: display the yum repolist output in screen
+     debug:
+      var: repolist.stdout_lines
+
+
+
+   - name: install docker ce from the rpm
+     command: dnf install docker-ce-18.03.1.ce-1.el7.centos.x86_64  --nobest -y
+     when: repolist.failed == false
+
+   - name: start docker services
+     service:
+      name: "docker"
+      state: "started"
+      enabled: yes
+
+
+
+   - name: install pip3 using yum
+     package:
+      name: "python3"
+      state: "present"
+
+
+
+
+   - name: install the sdk docker python library
+     command: pip3 install docker-py
+
+
+   - name: Pull the httpd service to launch the website
+     docker_image:
+      name: httpd
+      source: pull
+
+   - name: ansible create directory example
+     file:
+       path: /tmp/devops_directory
+       state: directory
+
+
+   - name: copy my web contents to hosts
+     template:
+      src: /root/ansible/web.html
+      dest: /tmp/devops_directory
+
+   - name: install pip3 using yum
+     package:
+      name: "firewalld"
+      state: "present"
+
+
+
+   - name: allow port 88 for webserver
+     firewalld:
+      port: "{{ item }}"
+      permanent: yes
+      state: enabled
+     loop:
+      - 80/tcp
+      - 9090/tcp
+
+
+   - name: restart firewalld service
+     service:
+      name: "firewalld"
+      state: restarted
+
+
+
+   - name: restart docker service
+     service:
+      name: "docker"
+      state: restarted
+
+
+   - name: launch the conatiner for hosting the webpage
+     docker_container:
+      name: "ansible_php_webserver_website"
+      image: "httpd"
+      state: started
+      published_ports: 80:80
+      volumes:
+       - /tmp/devops_directory:/usr/local/apache2/htdocs/
+
+
+   - copy:
+      content: "This is a html webserver"
+      dest: "/tmp/devops_directory/index.html"
+
+
+   - name: docker output
+     command: docker ps
+     register: output
+
+
+   - name: output
+     debug:
+       var: output.stdout
