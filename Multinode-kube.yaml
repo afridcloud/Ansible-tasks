@@ -1,0 +1,269 @@
+- name: "Same Configuration For Master and Slave Node"
+  hosts: all
+  vars:
+          - dockerurl: 'http://download.docker.com/linux/centos/7/x86_64/stable/'
+          - kubeadmurl: 'https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64'
+
+  tasks:
+      - name: "Disable swap space"
+        command: swapoff -a
+
+      - name: "Yum configuration for Docker"
+        yum_repository:
+          name: "docker"
+          description: "Docker yum repo"
+          baseurl: "{{ dockerurl }}"
+          gpgcheck: no
+
+      - name: "Yum configuration for Kubeadm , kubelet and kubectl"
+        yum_repository:
+          name: "kubeadm"
+          description: "kubernetes"
+          baseurl: "{{ kubeadmurl }}"
+          gpgcheck: yes
+          enabled: yes
+          gpgkey: 
+              - 'https://packages.cloud.google.com/yum/doc/yum-key.gpg'
+              - 'https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg'
+          repo_gpgcheck: yes
+          exclude:
+                  - 'kubeadm'
+                  - 'kubectl'
+                  - 'kubelet'
+
+
+      - name: install docker ce from the rpm
+        block:
+          command: dnf install docker-ce-18.03.1.ce-1.el7.centos.x86_64  --nobest -y
+        rescue:
+          command: dnf install docker-ce-18.03.1.ce-1.el7.centos.x86_64  --nobest -y
+
+
+        
+      - name: "Install kubeadm , kubelet and kubectl"
+        yum:
+          name: 
+              - "kubeadm"
+              - "kubelet"
+              - "kubectl"
+              - "iproute-tc"
+          state: present
+          disable_excludes: 'kubeadm'
+
+
+
+      - name: "Starting docker service permanent"
+        service:
+          name: "docker"
+          state: started
+          enabled: yes
+
+      - name: "Starting kubelet service"
+        service:
+          name: "docker"
+          state: started
+          enabled: yes
+
+      - name: "Config daemon.json for docker cgroup driver(systemd)"
+        copy:
+          src: 'daemon.json'
+          dest: '/etc/docker/daemon.json'
+
+      - name: "Daemon reload"
+        systemd:
+          daemon_reload: yes
+
+      - name: "Sysctl ip6tables entry"
+        sysctl:
+          name: 'net.bridge.bridge-nf-call-ip6tables'
+          value: '1'
+          state: present
+          reload: yes
+
+      - name: "Sysctl iptables entry"
+        sysctl:
+          name: 'net.bridge.bridge-nf-call-iptables'
+          value: '1'
+          state: present
+          reload: yes
+
+      - name: "Install python 3"
+        package:
+          name: 'python3'
+
+      - name: install the sdk docker python library
+        command: pip3 install docker-py
+
+      - name: "Disable permanently SELinux"
+        selinux:
+          state: permissive
+          policy: targeted 
+
+      - name: install firewalld using yum
+        package:
+          name: "firewalld"
+          state: "present"
+
+
+
+      - name: allow port 6443,10252 for webserver
+        firewalld:
+          port: "{{ item }}"
+          permanent: yes
+          state: enabled
+        loop:
+          - 6443/tcp
+          - 10252/tcp
+        notify:
+          - Restart firewalld
+          - Restart Docker service
+
+
+      - name: Restart firewalld
+        service:
+          name:  "firewalld"
+          state: restarted
+
+      - name: Restart Docker service
+        service:
+          name: "docker"
+          state: restarted
+
+      - name: "Telling hosts names to all nodes"
+        copy:
+          src: '/etc/hosts'
+          dest: '/etc/hosts'
+
+- name: "Set host name for slave1 172.31.45.132"
+  hosts: 172.31.45.132
+  vars:
+    - host: "slave1"
+  tasks:
+      - name: "Set host name"
+        hostname:
+          name: "{{ host }}"
+
+
+
+- name: "Set host name for slave1 172.31.36.177"
+  hosts: 172.31.36.177
+  vars:
+    - host: "slave2"
+  tasks:
+      - name: "Set host name"
+        hostname:
+          name: "{{ host }}"
+
+- name: "Slave Configuration"
+  hosts: slave
+  tasks:
+
+      - name: allow port 6443,10252 for webserver
+        firewalld:
+          port: "{{ item }}"
+          permanent: yes
+          state: enabled
+        loop:
+          - 6443/tcp
+          - 10252/tcp
+          - 10251/tcp
+        notify:
+          - Restart firewall
+
+
+      - name: Restart firewall
+        service:
+          name: "firewalld"
+          state: restarted
+
+
+
+- name: "Master Configuration"
+  hosts: master
+  vars:
+          - host: "master"
+  tasks:
+      - name: "Set host name"
+        hostname:
+          name: "{{ host }}"
+
+
+      - name: allow port 6443,10252 for webserver
+        firewalld:
+          port: "{{ item }}"
+          permanent: yes
+          state: enabled
+        loop:
+          - 6443/tcp
+        notify:
+          - Restart firewall
+
+
+      - name: Restart firewall
+        service:
+          name: "firewalld"
+          state: restarted
+
+      - name: "Pulling the required images for configuring the mastet"
+        shell: kubeadm config images pull
+
+      - name: "Make Master Node 172.31.42.103"
+        command: kubeadm init --pod-network-cidr=10.10.1.0/16
+        ignore_errors: yes
+        register: output
+
+      - name: output
+        debug:
+          var: output.stdout_lines[-2::]
+
+      - name: "Generating token for future purpose"
+        command: kubeadm token create --print-join-command
+        register: token_output
+
+      - name: output
+        debug:
+          var: token_output.stdout_lines[-1::]
+
+      - name: "saving the token for future purpose"
+        copy:
+          content: "{{ token_output.stdout_lines[-1::] }}"
+          dest: join_token
+        delegate_to: localhost
+
+
+      - name: "modifying the token for future purpose"
+        shell: cat join_token | awk -F'"' '{print $2}'  > join_token
+        delegate_to: localhost
+
+
+      - name: "Make .kube directory"
+        shell: mkdir -p $HOME/.kube
+        when: output.failed == "false"
+
+      - shell: sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+        when: output.failed == "false"
+
+      - shell: sudo chown $(id -u):$(id -g) $HOME/.kube/config
+        when: output.failed == "false"
+
+      - name: "Overlay Flannel setup"
+        shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+        when: output.failed == "false"
+
+
+
+- name: "Slave master joining"
+  hosts: slave
+  tasks:
+
+      - name: copying the token from source to slaves
+        copy: 
+          src: join_token
+          dest: /tmp/join_token
+        when: output.failed == "false"
+
+      - name: joining the worker node with kube-master
+        shell: kube reset -f; cat /tmp/join_token > out.sh;    sh out.sh
+        when: output.failed == "false"
+
+        
