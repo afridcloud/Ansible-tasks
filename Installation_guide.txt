@@ -1,0 +1,85 @@
+# yum install python3 -y
+
+# pip3 install ansible
+
+# find / -name ansible
+
+/etc/ansible
+/usr/local/bin/ansible
+/usr/local/lib/python3.6/site-packages/ansible
+/usr/local/lib/python3.6/site-packages/ansible_test/_data/injector/ansible
+
+
+# export PATH=$PATH:/usr/local/bin/
+
+# exec bash
+
+# ansible --version
+
+ansible 2.9.11
+  config file = None
+  configured module search path = ['/root/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+  ansible python module location = /usr/local/lib/python3.6/site-packages/ansible
+  executable location = /usr/local/bin/ansible
+  python version = 3.6.8 (default, Apr  3 2020, 12:24:13) [GCC 4.8.5 20150623 (Red Hat 4.8.5-39)]
+
+
+
+# ansible -m ping  all
+
+slave | FAILED! => {
+    "msg": "to use the 'ssh' connection type with passwords, you must install the sshpass program"
+}
+
+
+
+
+Installing EPEL:
+
+# wget https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+
+# yum install ./epel-release-latest-*.noarch.rpm
+
+# yum install sshpass -y
+
+
+# ansible -m ping  all
+
+slave | FAILED! => {
+    "msg": "Using a SSH password instead of a key is not possible because Host Key checking is enabled and sshpass does not support this.  Please add this host's fingerprint to your known_hosts file to manage this host."
+}
+
+
+Fix:
+
+Create a file /etc/ansible/ansible.cfg in your project directory (i.e. ansible.cfg in the provisioning_path on the target) with the following contents:
+
+[defaults]
+host_key_checking = false
+
+Output:
+
+# ansible -m ping  all
+slave | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+
+
+
+Note:  The location of config files will in processed in this order:
+
+	• ANSIBILE_CONFIG ( env variable )
+	• Ansibile.cfg ( in current directory )
+	• Ansibile.cfg ( in home edirectory )
+	• /etc/ansibile/ansibile.cfg  
+
+
+Configuring host file:
+
+
+
+
