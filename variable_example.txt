@@ -1,0 +1,102 @@
+
+
+###  Directly in playbook
+
+
+- name: "Set host name for slave1 172.31.45.132"
+  hosts: 172.31.45.132
+  vars:
+    - host: "slave1"
+  tasks:
+      - name: "Set host name"
+        hostname:
+          name: "{{ host }}"
+
+
+###  Prompting method
+
+
+- name: configuring apache webserver with simple html file
+  hosts: all
+  vars_prompt:
+   - name: package
+     prompt: "enter the name of the package need to install"
+   - name: package_state
+     prompt: "enter the state of the package to be install whether installed/started/present/absent/removed"
+   - name: S_name
+     prompt: "enter the name of the service to start/stop/restart/reload"
+   - name: S_state
+     prompt: "enter the state of the service whether started/stopped/reloaded/restarted/reloaded"
+   - name: S_rstate
+     private: no
+     prompt: "select the service state as restarted"
+
+
+  tasks:
+    - name: for installing package
+      yum:
+        name: "{{ package }}"
+        state: "{{ package_state }}"
+      when: ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    - name: using service module
+      service:
+        name: "{{ S_name }}"
+        state: "{{ S_state }}"
+
+
+    - name: copying the index.html to default apache folder
+      copy:
+        src: "index.html"
+        dest: "/var/www/html"
+      notify:
+            - restart httpd
+
+  handlers:
+       - name: restart httpd
+         service:
+            name: "{{ S_name }}"
+            state: "{{ S_rstate }}"
+
+
+
+###  In files become_method
+
+
+- name: configuring apache webserver with simple html file
+  hosts: all
+  vars_files:
+      - vars.yaml
+
+  tasks:
+       - name: for installing package
+         yum:
+            name: "{{ package }}"
+            state: "{{ package_state }}"
+       - name: using service module
+         service:
+            name: "{{ S_name }}"
+            state: "{{ S_state }}"
+       - name: copying the index.html to default apache folder
+         copy:
+           src: "index.html"
+           dest: "/var/www/html"
+         notify:
+                - restart httpd
+
+
+  handlers:
+       - name: restart httpd
+         service:
+            name: "{{ S_name }}"
+            state: "{{ S_rstate }}"
+
+
+
+
+
+
+
+
+
+
