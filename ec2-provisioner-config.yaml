@@ -1,0 +1,95 @@
+
+
+- hosts: localhost 
+  tasks: 
+  - name: Provisioning OS from AWS (EC2)
+    ec2: 
+      key_name: "ohio-afri"
+      instance_type: "t2.micro"
+      image: "ami-0a54aef4ef3b5f881"
+      wait: yes
+      count: 2
+      vpc_subnet_id: "subnet-27f1936b"
+      assign_public_ip: yes
+      region: "us-east-2"
+      state: present
+      group_id: "sg-0e8d8587ed3987865"
+      instance_tags:
+        provisioner: ansible
+        type: web-server
+    register: ec2os
+
+
+  - name: Waiting for SSH 
+    wait_for: 
+      host: "{{ item.public_ip }}"
+      port: 22
+      state: started
+    with_items: "{{ ec2os.instances }}"
+
+
+  - name: display the launched instance public ip
+    debug:
+      var: ec2os.instances.public_ip
+
+
+- hosts: tag_type_web_server
+  remote_user: ec2-user
+  become: yes
+  vars:
+    - P_name: "httpd"
+    - Dest_index_www: "/var/www/html"
+    - Dest_index_test: "/var/www/test"
+    - Dest_config_file: "/etc/httpd/conf.d/"
+    - S_name: "httpd"
+
+
+  tasks: 
+    - name: Installing apache
+      package: 
+        name: "{{ P_name }}"
+        state: present
+
+    - name: Starting httpd services
+      service: 
+        name: httpd
+        state: started
+        enabled: yes 
+
+    - name: Creates /var/www/test directory
+      file:
+        path: "{{ Dest_index_test }}"
+        state: directory
+        owner: apache
+        group: apache
+        mode: 0755
+
+    - name: copying the virtual hosting config to /etc/httpd/conf.d/ folder
+      template:
+        src: test.conf
+        dest: "{{ Dest_config_file }}"
+        mode: 0755
+
+    - name: "Disable permanently SELinux"
+      selinux:
+        state: permissive
+        policy: targeted 
+
+
+    - name: copying the index.html to default apache folder
+      copy:
+        src: "{{ item.source }}"
+        dest: "{{ item.destination }}"
+        mode: 0755
+      with_items:
+        - { source: 'index.html', destination: "{{ Dest_index_www }}" }
+        - { source: 'test.html', destination: "{{ Dest_index_test }}" }
+      notify:
+            - restart httpd
+
+
+  handlers:
+    - name: restart httpd
+      service:
+          name: "{{ S_name }}"
+          state: restarted
